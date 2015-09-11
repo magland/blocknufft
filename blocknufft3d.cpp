@@ -2,10 +2,9 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
-#include <QTime>
+#include "qute.h"
 #include "omp.h"
 #include "fftw3.h"
-#include "mda.h"
 
 #define LEFT_SIDE 1
 #define RIGHT_SIDE 2
@@ -134,16 +133,23 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
             int bx=bb0%num_blocks_x;
             int by=(bb0/num_blocks_x)%num_blocks_y;
             int bz=(bb0/num_blocks_x/num_blocks_y);
-			for (int i1=-1; i1<=1; i1++) {
-				if ( ((i1==-1)&&(code&LEFT_SIDE)) || (i1==0) || ((i1==1)&&(code&RIGHT_SIDE)) ) {
-                    int bbx=(bx+i1+num_blocks_x)%num_blocks_x;
-					for (int i2=-1; i2<=1; i2++) {
-						if ( ((i2==-1)&&(code&BOTTOM_SIDE)) || (i2==0) || ((i2==1)&&(code&TOP_SIDE)) ) {
-                            int bby=(by+i2+num_blocks_y)%num_blocks_y;
-							for (int i3=-1; i3<=1; i3++) {
-								if ( ((i3==-1)&&(code&BACK_SIDE)) || (i3==0) || ((i3==1)&&(code&FRONT_SIDE)) ) {
-                                    int bbz=(bz+i3+num_blocks_z)%num_blocks_z;
-                                    local_input_block_counts[bbx+num_blocks_x*bby+num_blocks_x*num_blocks_y*bbz]++;
+            for (int i1=-1; i1<=1; i1++) {
+                if ( ((i1==-1)&&(code&LEFT_SIDE)) || (i1==0) || ((i1==1)&&(code&RIGHT_SIDE)) ) {
+                    int bbx=bx+i1;
+                    if (bbx<0) {bbx+=num_blocks_x;}
+                    if (bbx>=num_blocks_x) {bbx-=num_blocks_x;}
+                    for (int i2=-1; i2<=1; i2++) {
+                        if ( ((i2==-1)&&(code&BOTTOM_SIDE)) || (i2==0) || ((i2==1)&&(code&TOP_SIDE)) ) {
+                            int bby=by+i2;
+                            if (bby<0) {bby+=num_blocks_y;}
+                            if (bby>=num_blocks_y) {bby-=num_blocks_y;}
+                            for (int i3=-1; i3<=1; i3++) {
+                                if ( ((i3==-1)&&(code&BACK_SIDE)) || (i3==0) || ((i3==1)&&(code&FRONT_SIDE)) ) {
+                                    int bbz=bz+i3;
+                                    if (bbz<0) {bbz+=num_blocks_z;}
+                                    if (bbz>=num_blocks_z) {bbz-=num_blocks_z;}
+                                    int bbb=bbx+num_blocks_x*bby+num_blocks_x*num_blocks_y*bbz;
+                                    local_input_block_counts[bbb]++;
 								}
 							}
 						}
@@ -193,7 +199,6 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 	double *input_z=(double *)malloc(sizeof(double)*input_size);
 	double *input_d=(double *)malloc(sizeof(double)*input_size_times_2); //times 2 because complex
 	for (int m=0; m<M; m++) { //can this be parallelized? Not sure!
-
         int code=location_codes[m];
         int bb0=block_ids[m];
         int bx=bb0%num_blocks_x;
@@ -204,19 +209,19 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
                 int bbx=bx+i1;
                 int wrapx=0;
                 if (bbx<0) {bbx+=num_blocks_x; wrapx=N1;}
-                if (bbx>num_blocks_x) {bbx-=num_blocks_x; wrapx=-N1;}
+                if (bbx>=num_blocks_x) {bbx-=num_blocks_x; wrapx=-N1;}
                 for (int i2=-1; i2<=1; i2++) {
                     if ( ((i2==-1)&&(code&BOTTOM_SIDE)) || (i2==0) || ((i2==1)&&(code&TOP_SIDE)) ) {
                         int bby=by+i2;
                         int wrapy=0;
                         if (bby<0) {bby+=num_blocks_y; wrapy=N2;}
-                        if (bby>num_blocks_y) {bby-=num_blocks_y; wrapy=-N2;}
+                        if (bby>=num_blocks_y) {bby-=num_blocks_y; wrapy=-N2;}
                         for (int i3=-1; i3<=1; i3++) {
                             if ( ((i3==-1)&&(code&BACK_SIDE)) || (i3==0) || ((i3==1)&&(code&FRONT_SIDE)) ) {
                                 int bbz=bz+i3;
                                 int wrapz=0;
                                 if (bbz<0) {bbz+=num_blocks_z; wrapz=N3;}
-                                if (bbz>num_blocks_z) {bbz-=num_blocks_z; wrapx=-N3;}
+                                if (bbz>=num_blocks_z) {bbz-=num_blocks_z; wrapz=-N3;}
                                 int bbb=bbx+num_blocks_x*bby+num_blocks_x*num_blocks_y*bbz;
                                 int iii=input_block_indices[bbb]+block_ii[bbb];
                                 input_x[iii]=x[m]+wrapx;
@@ -456,33 +461,75 @@ bool do_fft_3d(int N1,int N2,int N3,double *out,double *in,int num_threads=1) {
 
 	return true;
 }
-void do_fix_3d(int N1,int N2,int N3,int oversamp,int R,double tau,double *out,double *out_oversamp_hat) {
+void do_fix_3d(int N1,int N2,int N3,int oversamp,double tau,double *out,double *out_oversamp_hat) {
+    double *correction_vals1=(double *)malloc(sizeof(double)*(N1/2+2));
+    double *correction_vals2=(double *)malloc(sizeof(double)*(N2/2+2));
+    double *correction_vals3=(double *)malloc(sizeof(double)*(N3/2+2));
+    double tmp1=2*M_PI/(N1*oversamp);
+    double tmp2=2*M_PI/(N2*oversamp);
+    double tmp3=2*M_PI/(N3*oversamp);
+    for (int i=0; i<N1/2+2; i++) {
+        correction_vals1[i]=exp(-i*i*tau*tmp1*tmp1);
+    }
+    for (int i=0; i<N2/2+2; i++) {
+        correction_vals2[i]=exp(-i*i*tau*tmp2*tmp2);
+    }
+    for (int i=0; i<N3/2+2; i++) {
+        correction_vals3[i]=exp(-i*i*tau*tmp3*tmp3);
+    }
     for (int i3=0; i3<N3; i3++) {
         int aa3=i3*N1*N2;
         int bb3=0;
-        if (i3<N3/2) bb3=i3*N1*oversamp*N2*oversamp;
-        else bb3=(N3*oversamp-(N3-i3))*N1*oversamp*N2*oversamp;
+        double correction3=1;
+        if (i3<N3/2) { //should this be <= ?  It doesn't seem to make a significant difference. Not sure why
+            bb3=i3*N1*oversamp*N2*oversamp;
+            correction3=correction_vals3[i3];
+        }
+        else {
+            bb3=(N3*oversamp-(N3-i3))*N1*oversamp*N2*oversamp;
+            correction3=correction_vals3[N3-i3];
+        }
         for (int i2=0; i2<N2; i2++) {
             int aa2=i2*N1;
             int bb2=0;
-            if (i2<N2/2) bb2=i2*N1*oversamp;
-            else bb2=(N2*oversamp-(N2-i2))*N1*oversamp;
+            double correction2=1;
+            if (i2<N2/2) {
+                bb2=i2*N1*oversamp;
+                correction2=correction_vals2[i2];
+            }
+            else {
+                bb2=(N2*oversamp-(N2-i2))*N1*oversamp;
+                correction2=correction_vals2[N2-i2];
+            }
             aa2+=aa3;
             bb2+=bb3;
+            correction2*=correction3;
             for (int i1=0; i1<N1; i1++) {
                 int aa1=i1;
                 int bb1=0;
-                if (i1<N1/2) bb1=i1;
-                else bb1=N1*oversamp-(N1-i1);
+                double correction1=1;
+                if (i1<N1/2) {
+                    bb1=i1;
+                    correction1=correction_vals1[i1];
+                }
+                else {
+                    bb1=N1*oversamp-(N1-i1);
+                    correction1=correction_vals1[N1-i1];
+                }
                 aa1+=aa2;
                 bb1+=bb2;
-                out[aa1*2]=out_oversamp_hat[bb1*2];
-                out[aa1*2+1]=out_oversamp_hat[bb1*2+1];
+                correction1*=correction2;
+                out[aa1*2]=out_oversamp_hat[bb1*2]/correction1;
+                out[aa1*2+1]=out_oversamp_hat[bb1*2+1]/correction1;
             }
         }
     }
+    free(correction_vals1);
+    free(correction_vals2);
+    free(correction_vals3);
 }
 
+/*
 void write_mda_re_im(const QString &path,int N1,int N2,int N3,double *X) {
     Mda A_re; A_re.allocate(N1,N2,N3);
     Mda A_im; A_im.allocate(N1,N2,N3);
@@ -496,6 +543,7 @@ void write_mda_re_im(const QString &path,int N1,int N2,int N3,double *X) {
     A_re.write(path+"_re.mda");
     A_im.write(path+"_im.mda");
 }
+*/
 
 //x,y,z should be in range [0,2pi)
 bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *x,double *y,double *z,double *d) {
@@ -523,6 +571,9 @@ c     and tau is chosen as
 c
 c     tau = pi*lambda/(ms**2)
 c     lambda = nspread/(rat(rat-0.5)).
+c     Note that the Fourier transform of g(x) is
+c
+c     G(s) = exp(-s^2 tau) = exp(-pi*lambda s^2/ms^2)
     */
 
     double eps=opts.eps;
@@ -558,7 +609,6 @@ c     lambda = nspread/(rat(rat-0.5)).
 
     printf("Spreading...\n"); timer0.start();
     blockspread3d(sopts,out_oversamp,x,y,z,d);
-    write_mda_re_im("out_oversamp",sopts.N1o,sopts.N2o,sopts.N3o,out_oversamp);
     double spreading_time=timer0.elapsed();
     printf("Total time for spreading: %d ms\n",timer0.elapsed());
 
@@ -574,12 +624,11 @@ c     lambda = nspread/(rat(rat-0.5)).
 		free(out_oversamp_hat);
 		return false;
 	}
-    write_mda_re_im("out_oversamp_hat",sopts.N1o,sopts.N2o,sopts.N3o,out_oversamp_hat);
     double fft_time=timer0.elapsed();
     printf("Elapsed: %d ms\n",timer0.elapsed());
 
     printf("fix... "); timer0.start();
-    do_fix_3d(opts.N1,opts.N2,opts.N3,oversamp,R,tau,out,out_oversamp_hat);
+    do_fix_3d(opts.N1,opts.N2,opts.N3,oversamp,tau,out,out_oversamp_hat);
     printf("Elapsed: %d ms\n",timer0.elapsed());
 
     printf("Restoring coordinates... "); timer0.start();
@@ -623,7 +672,7 @@ void test_blocknufft3d(BlockNufft3DOptions &opts)
         d[m*2]=0;//sin(m+0.1);
 		d[m*2+1]=0;
 	}
-    x[0]=0; y[0]=0; z[0]=0; d[0]=1;
+    x[0]=20*M_PI/180; y[0]=10*M_PI/180; z[0]=5*M_PI/180; d[0]=1;
     double sum_d[2]={0,0};
     for (int i=0; i<opts.M; i++) {
         sum_d[0]+=d[i*2];
@@ -637,7 +686,6 @@ void test_blocknufft3d(BlockNufft3DOptions &opts)
 		for (int aa=0; aa<10; aa++) printf("%d:%g, ",aa,out1[aa]); printf("\n");
         printf("sum_d = %g + %gi\n",sum_d[0],sum_d[1]);
 		printf("Time for blocknufft3d: %d ms\n\n",timer.elapsed());
-        write_mda_re_im("out1",opts.N1,opts.N2,opts.N3,out1);
 	}
 	if (1) {
 		QTime timer; timer.start();

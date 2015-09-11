@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
-#include <QTime>
+#include "qute.h"
 #include "omp.h"
 
 double eval_kernel(double x,double y) {

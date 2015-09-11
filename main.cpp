@@ -2,11 +2,11 @@
 #include <math.h>
 #include <stdlib.h>
 #include "omp.h"
-#include <QTime>
-#include <QDebug>
 #include "blocknufft1d.h"
 #include "blocknufft2d.h"
 #include "blocknufft3d.h"
+#include <chrono>
+#include "qute.h"
 
 int main(int argc, char *argv[])
 {
@@ -23,10 +23,10 @@ int main(int argc, char *argv[])
 	}
 	if (1) {
 		BlockNufft3DOptions opts3;
-        //opts3.N1=256; opts3.N2=256; opts3.N3=32;
-        //opts3.M=1e7;
-        opts3.N1=32; opts3.N2=32; opts3.N3=32;
-        opts3.M=1;
+        opts3.N1=256; opts3.N2=256; opts3.N3=16;
+        opts3.M=1e6;
+        //opts3.N1=66; opts3.N2=66; opts3.N3=66;
+        //opts3.M=1;
         opts3.eps=1e-10;
         opts3.K1=1000; opts3.K2=100; opts3.K3=100;
         //opts3.K1=opts3.N1*2; opts3.K2=opts3.N2*2; opts3.K3=opts3.N3*2;

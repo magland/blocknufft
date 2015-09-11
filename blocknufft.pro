@@ -4,8 +4,7 @@
 #
 #-------------------------------------------------
 
-QT       += core
-
+QT       -= core
 QT       -= gui
 
 TARGET = blocknufft
@@ -16,17 +15,19 @@ TEMPLATE = app
 
 
 SOURCES += main.cpp \
-    blocknufft1d.cpp blocknufft2d.cpp blocknufft3d.cpp
+    blocknufft1d.cpp blocknufft2d.cpp blocknufft3d.cpp \
+    qute.cpp
 
 QMAKE_LFLAGS += -fopenmp
-QMAKE_CXXFLAGS += -fopenmp
+QMAKE_CXXFLAGS += -fopenmp -std=c++11
 LIBS += -fopenmp -lfftw3 -lfftw3_threads
 
 HEADERS += \
-    blocknufft1d.h blocknufft2d.h blocknufft3d.h
+    blocknufft1d.h blocknufft2d.h blocknufft3d.h \
+    qute.h
 
-INCLUDEPATH += ../pebble/mdaio
-DEPENDPATH += ../pebble/mdaio
-VPATH += ../pebble/mdaio
-HEADERS += mda.h mdaio.h usagetracking.h
-SOURCES += mda.cpp mdaio.cpp usagetracking.cpp
+#INCLUDEPATH += ../pebble/mdaio
+#DEPENDPATH += ../pebble/mdaio
+#VPATH += ../pebble/mdaio
+#HEADERS += mda.h mdaio.h usagetracking.h
+#SOURCES += mda.cpp mdaio.cpp usagetracking.cpp
