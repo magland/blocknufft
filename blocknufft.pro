@@ -20,7 +20,7 @@ SOURCES += main.cpp \
 
 QMAKE_LFLAGS += -fopenmp
 QMAKE_CXXFLAGS += -fopenmp
-LIBS += -fopenmp
+LIBS += -fopenmp -lfftw3
 
 HEADERS += \
     blocknufft1d.h blocknufft2d.h blocknufft3d.h
