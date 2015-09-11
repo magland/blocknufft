@@ -25,4 +25,20 @@ struct BlockSpread3DOptions {
 bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double *y,double *z,double *d);
 void test_blockspread3d(BlockSpread3DOptions &opts);
 
+// MATLAB interface using MCWRAP!!
+
+/*
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////
+MCWRAP [ COMPLEX out[N1,N2,N3] ] = blocknufft3d( xyz[M,3], COMPLEX d[M,1], eps, N1, N2, N3, K1, K2, K3, num_threads )
+    SET_INPUT M = size(xyz,1)
+    SOURCES blocknufft3d.o qute.cpp
+    MEXARGS -largeArrayDims -lm -lgomp -lfftw3 -lfftw3_threads
+IMPORTANT: In order to get openmp to work properly you must generate blocknufft3d.o separately using g++
+  > g++ -fopenmp -c blocknufft3d.cpp -fPIC -O3
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+*/
+
+void blocknufft3d(int N1,int N2,int N3,int M,double *out,double *xyz,double *d,double eps,int K1,int K2,int K3,int num_threads);
+
+
 #endif // BLOCKNUFFT3D_H

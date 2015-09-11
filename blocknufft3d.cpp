@@ -239,9 +239,10 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 	}
 	printf("Elapsed: %d ms\n",timer0.elapsed());
 
-	printf("spreading... "); timer0.start();
+    printf("spreading []... "); timer0.start();
 	#pragma omp parallel
 	{
+        if (omp_get_thread_num()==0) printf("#################### Using %d threads (%d prescribed)\n",omp_get_num_threads(),opts.num_threads);
 		#pragma omp for
 		for (int cc=0; cc<num_blocks; cc++) {
 			int cc1=cc%num_blocks_x;
@@ -350,7 +351,7 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 			int cc1=cc%num_blocks_x;
 			int cc2=(cc%(num_blocks_x*num_blocks_y))/num_blocks_x;
 			int cc3=cc/(num_blocks_x*num_blocks_y);
-			int factor1=K1; if ((cc1+1)*K1>=N1) factor1=(N1-cc1*K1);
+            int factor1=K1; if ((cc1+1)*K1>=N1) factor1=N1-cc1*K1;
 			int factor2=K2; if ((cc2+1)*K2>=N2) factor2=N2-cc2*K2;
 			int factor3=K3; if ((cc3+1)*K3>=N3) factor3=N3-cc3*K3;
 			int dd1=cc1*K1;
@@ -360,9 +361,9 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 			for (int i3=0; i3<factor3; i3++) {
 				for (int i2=0; i2<factor2; i2++) {
 					for (int i1=0; i1<factor1; i1++) { //make this inner loop more efficient by not doing the multiplication here?
-						int jjj=(dd1+i1)*2+(dd2+i2)*N1_times_2+(dd3+i3)*N1N2_times_2; //complex index
-						out[jjj]=output_tmp[kkk];
-						out[jjj+1]=output_tmp[kkk+1];
+                        int jjj=(dd1+i1)+(dd2+i2)*N1+(dd3+i3)*N1N2;
+                        out[jjj*2]=output_tmp[kkk];
+                        out[jjj*2+1]=output_tmp[kkk+1];
 						kkk+=2; //add 2 because complex
 					}
 				}
@@ -709,4 +710,19 @@ void test_blocknufft3d(BlockNufft3DOptions &opts)
 	free(y);
 	free(z);
 	free(d);
+}
+
+void blocknufft3d(int N1,int N2,int N3,int M,double *out,double *xyz,double *d,double eps,int K1,int K2,int K3,int num_threads) {
+    BlockNufft3DOptions opts;
+    opts.eps=eps;
+    opts.K1=K1; opts.K2=K2; opts.K3=K3;
+    opts.N1=N1; opts.N2=N2; opts.N3=N3;
+    opts.M=M;
+    opts.num_threads=num_threads;
+
+    double *x=&xyz[0];
+    double *y=&xyz[M];
+    double *z=&xyz[2*M];
+    blocknufft3d(opts,out,x,y,z,d);
+
 }

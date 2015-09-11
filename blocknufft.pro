@@ -8,6 +8,7 @@ QT       -= core
 QT       -= gui
 
 TARGET = blocknufft
+OBJECTS_DIR = build
 CONFIG   += console
 CONFIG   -= app_bundle
 
@@ -15,7 +16,7 @@ TEMPLATE = app
 
 
 SOURCES += main.cpp \
-    blocknufft1d.cpp blocknufft2d.cpp blocknufft3d.cpp \
+    blocknufft3d.cpp \
     qute.cpp
 
 QMAKE_LFLAGS += -fopenmp
@@ -23,7 +24,7 @@ QMAKE_CXXFLAGS += -fopenmp -std=c++11
 LIBS += -fopenmp -lfftw3 -lfftw3_threads
 
 HEADERS += \
-    blocknufft1d.h blocknufft2d.h blocknufft3d.h \
+    blocknufft3d.h \
     qute.h
 
 #INCLUDEPATH += ../pebble/mdaio
