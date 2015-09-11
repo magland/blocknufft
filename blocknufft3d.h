@@ -4,11 +4,9 @@
 struct BlockNufft3DOptions {
 	int N1,N2,N3; //uniform grid size
 	int K1,K2,K3; //block size
-	int R1,R2,R3; //kernel size
 	int M; //number of non-uniform points
 	int num_threads; //
-	double tau1,tau2,tau3; //spreading factor
-	int oversamp; //oversampling factor
+    double eps; //requested precision --> determines tau, oversamp factor and R
 };
 
 //x,y,z should be in range [0,2pi)

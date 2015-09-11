@@ -20,7 +20,13 @@ SOURCES += main.cpp \
 
 QMAKE_LFLAGS += -fopenmp
 QMAKE_CXXFLAGS += -fopenmp
-LIBS += -fopenmp -lfftw3
+LIBS += -fopenmp -lfftw3 -lfftw3_threads
 
 HEADERS += \
     blocknufft1d.h blocknufft2d.h blocknufft3d.h
+
+INCLUDEPATH += ../pebble/mdaio
+DEPENDPATH += ../pebble/mdaio
+VPATH += ../pebble/mdaio
+HEADERS += mda.h mdaio.h usagetracking.h
+SOURCES += mda.cpp mdaio.cpp usagetracking.cpp

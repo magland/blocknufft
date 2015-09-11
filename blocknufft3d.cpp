@@ -5,6 +5,7 @@
 #include <QTime>
 #include "omp.h"
 #include "fftw3.h"
+#include "mda.h"
 
 #define LEFT_SIDE 1
 #define RIGHT_SIDE 2
@@ -12,6 +13,8 @@
 #define TOP_SIDE 8
 #define BACK_SIDE 16
 #define FRONT_SIDE 32
+
+#define ROUND_2_INT(f) ((int)(f >= 0.0 ? (f + 0.5) : (f - 0.5)))
 
 double *s_exp_lookup1=0;
 double *s_exp_lookup2=0;
@@ -97,18 +100,22 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 		#pragma omp for
 		for (int m=0; m<M; m++) {
 			int b1=(int)(x[m]/K1);
-			int c1=(int)(x[m]-b1*K1+0.5);
+            int c1=ROUND_2_INT(x[m]-b1*K1);
 			int b2=(int)(y[m]/K2);
-			int c2=(int)(y[m]-b2*K2+0.5);
+            int c2=ROUND_2_INT(y[m]-b2*K2);
 			int b3=(int)(z[m]/K3);
-			int c3=(int)(z[m]-b3*K3+0.5);
+            int c3=ROUND_2_INT(z[m]-b3*K3);
 			int code=0;
-			if ((c1>=K1-R1/2)&&(b1+1<num_blocks_x)) code=code|RIGHT_SIDE;
-			if ((c1<=-R1/2+R1-1)&&(b1-1>=0)) code=code|LEFT_SIDE;
-			if ((c2>=K2-R2/2)&&(b2+1<num_blocks_y)) code=code|TOP_SIDE;
-			if ((c2<=-R2/2+R2-1)&&(b2-1>=0)) code=code|BOTTOM_SIDE;
-			if ((c3>=K3-R3/2)&&(b3+1<num_blocks_z)) code=code|FRONT_SIDE;
-			if ((c3<=-R3/2+R3-1)&&(b3-1>=0)) code=code|BACK_SIDE;
+            int k1=K1,k2=K2,k3=K3;
+            if (b1==num_blocks_x-1) k1=fmin(N1-(num_blocks_x-1)*K1,K1); //the min is needed in case K1>N1*2
+            if (b2==num_blocks_y-1) k2=fmin(N2-(num_blocks_y-1)*K2,K2);
+            if (b3==num_blocks_z-1) k3=fmin(N3-(num_blocks_z-1)*K3,K3);
+            if ((k1-c1<=R1/2)) code=code|RIGHT_SIDE;
+            if ((c1<=-R1/2+R1-1)) code=code|LEFT_SIDE;
+            if ((k2-c2<=R2/2)) code=code|TOP_SIDE;
+            if ((c2<=-R2/2+R2-1)) code=code|BOTTOM_SIDE;
+            if ((k3-c3<=R3/2)) code=code|FRONT_SIDE;
+            if ((c3<=-R3/2+R3-1)) code=code|BACK_SIDE;
 			location_codes[m]=code;
 			block_ids[m]=b1+num_blocks_x*b2+num_blocks_x*num_blocks_y*b3;
 		}
@@ -124,16 +131,19 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 		for (int m=0; m<M; m++) {
 			int code=location_codes[m];
 			int bb0=block_ids[m];
+            int bx=bb0%num_blocks_x;
+            int by=(bb0/num_blocks_x)%num_blocks_y;
+            int bz=(bb0/num_blocks_x/num_blocks_y);
 			for (int i1=-1; i1<=1; i1++) {
 				if ( ((i1==-1)&&(code&LEFT_SIDE)) || (i1==0) || ((i1==1)&&(code&RIGHT_SIDE)) ) {
-					int bb1=bb0+i1;
+                    int bbx=(bx+i1+num_blocks_x)%num_blocks_x;
 					for (int i2=-1; i2<=1; i2++) {
 						if ( ((i2==-1)&&(code&BOTTOM_SIDE)) || (i2==0) || ((i2==1)&&(code&TOP_SIDE)) ) {
-							int bb2=bb1+i2*num_blocks_x;
+                            int bby=(by+i2+num_blocks_y)%num_blocks_y;
 							for (int i3=-1; i3<=1; i3++) {
 								if ( ((i3==-1)&&(code&BACK_SIDE)) || (i3==0) || ((i3==1)&&(code&FRONT_SIDE)) ) {
-									int bb3=bb2+i3*num_blocks_x*num_blocks_y;
-									local_input_block_counts[bb3]++;
+                                    int bbz=(bz+i3+num_blocks_z)%num_blocks_z;
+                                    local_input_block_counts[bbx+num_blocks_x*bby+num_blocks_x*num_blocks_y*bbz]++;
 								}
 							}
 						}
@@ -148,7 +158,7 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 	}
 	printf("Elapsed: %d ms\n",timer0.elapsed());
 
-	printf("Computing sizes... "); timer0.start();
+    printf("Computing sizes and initializing output array... "); timer0.start();
 	int input_size=0;
 	int input_block_indices[num_blocks];
 	int output_size=0;
@@ -168,7 +178,12 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 	int input_size_times_2=input_size*2;
 	int output_size_times_2=output_size*2; //for complex
 	double *output_tmp=(double *)malloc(sizeof(double)*output_size_times_2); //complex
-	for (int ii=0; ii<output_size_times_2; ii++) output_tmp[ii]=0;
+    #pragma omp parallel
+    {
+        #pragma omp for
+        for (int ii=0; ii<output_size_times_2; ii++)
+            output_tmp[ii]=0;
+    }
 	printf("Elapsed: %d ms\n",timer0.elapsed());
 
 	printf("setting input... "); timer0.start();
@@ -178,30 +193,44 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 	double *input_z=(double *)malloc(sizeof(double)*input_size);
 	double *input_d=(double *)malloc(sizeof(double)*input_size_times_2); //times 2 because complex
 	for (int m=0; m<M; m++) { //can this be parallelized? Not sure!
-		int code=location_codes[m];
-		int bb0=block_ids[m];
-		for (int i1=-1; i1<=1; i1++) {
-			if ( ((i1==-1)&&(code&LEFT_SIDE)) || (i1==0) || ((i1==1)&&(code&RIGHT_SIDE)) ) {
-				int bb1=bb0+i1;
-				for (int i2=-1; i2<=1; i2++) {
-					if ( ((i2==-1)&&(code&BOTTOM_SIDE)) || (i2==0) || ((i2==1)&&(code&TOP_SIDE)) ) {
-						int bb2=bb1+i2*num_blocks_x;
-						for (int i3=-1; i3<=1; i3++) {
-							if ( ((i3==-1)&&(code&BACK_SIDE)) || (i3==0) || ((i3==1)&&(code&FRONT_SIDE)) ) {
-								int bb3=bb2+i3*num_blocks_x*num_blocks_y;
-								int iii=input_block_indices[bb3]+block_ii[bb3];
-								input_x[iii]=x[m];
-								input_y[iii]=y[m];
-								input_z[iii]=z[m];
-								input_d[iii*2]=d[m*2];
-								input_d[iii*2+1]=d[m*2+1];
-								block_ii[bb3]++;
-							}
-						}
-					}
-				}
-			}
-		}
+
+        int code=location_codes[m];
+        int bb0=block_ids[m];
+        int bx=bb0%num_blocks_x;
+        int by=(bb0/num_blocks_x)%num_blocks_y;
+        int bz=(bb0/num_blocks_x/num_blocks_y);
+        for (int i1=-1; i1<=1; i1++) {
+            if ( ((i1==-1)&&(code&LEFT_SIDE)) || (i1==0) || ((i1==1)&&(code&RIGHT_SIDE)) ) {
+                int bbx=bx+i1;
+                int wrapx=0;
+                if (bbx<0) {bbx+=num_blocks_x; wrapx=N1;}
+                if (bbx>num_blocks_x) {bbx-=num_blocks_x; wrapx=-N1;}
+                for (int i2=-1; i2<=1; i2++) {
+                    if ( ((i2==-1)&&(code&BOTTOM_SIDE)) || (i2==0) || ((i2==1)&&(code&TOP_SIDE)) ) {
+                        int bby=by+i2;
+                        int wrapy=0;
+                        if (bby<0) {bby+=num_blocks_y; wrapy=N2;}
+                        if (bby>num_blocks_y) {bby-=num_blocks_y; wrapy=-N2;}
+                        for (int i3=-1; i3<=1; i3++) {
+                            if ( ((i3==-1)&&(code&BACK_SIDE)) || (i3==0) || ((i3==1)&&(code&FRONT_SIDE)) ) {
+                                int bbz=bz+i3;
+                                int wrapz=0;
+                                if (bbz<0) {bbz+=num_blocks_z; wrapz=N3;}
+                                if (bbz>num_blocks_z) {bbz-=num_blocks_z; wrapx=-N3;}
+                                int bbb=bbx+num_blocks_x*bby+num_blocks_x*num_blocks_y*bbz;
+                                int iii=input_block_indices[bbb]+block_ii[bbb];
+                                input_x[iii]=x[m]+wrapx;
+                                input_y[iii]=y[m]+wrapy;
+                                input_z[iii]=z[m]+wrapz;
+                                input_d[iii*2]=d[m*2];
+                                input_d[iii*2+1]=d[m*2+1];
+                                block_ii[bbb]++;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 	}
 	printf("Elapsed: %d ms\n",timer0.elapsed());
 
@@ -230,21 +259,21 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 			while (jj<tmp) {
 				double x0=input_x[jj],y0=input_y[jj],z0=input_z[jj],d0_re=input_d[jj*2],d0_im=input_d[jj*2+1];
 
-                int x_integer=(int)(x0+0.5);
+                int x_integer=ROUND_2_INT(x0);
                 double x_diff=x0-x_integer;
                 double x_term1=exp(-x_diff*x_diff/(4*opts.tau1));
                 double x_term2_factor=exp(-2*x_diff/(4*opts.tau1));
 				int xmin=fmax(x_integer-R1/2,block_xmin);
 				int xmax=fmin(x_integer-R1/2+R1-1,block_xmax);
 
-                int y_integer=(int)(y0+0.5);
+                int y_integer=ROUND_2_INT(y0);
                 double y_diff=y0-y_integer;
                 double y_term1=exp(-y_diff*y_diff/(4*opts.tau2));
                 double y_term2_factor=exp(-2*y_diff/(4*opts.tau2));
 				int ymin=fmax(y_integer-R1/2,block_ymin);
 				int ymax=fmin(y_integer-R1/2+R1-1,block_ymax);
 
-                int z_integer=(int)(z0+0.5);
+                int z_integer=ROUND_2_INT(z0);
                 double z_diff=z0-z_integer;
                 double z_term1=exp(-z_diff*z_diff/(4*opts.tau3));
                 double z_term2_factor=exp(-2*z_diff/(4*opts.tau3));
@@ -399,82 +428,179 @@ void test_blockspread3d(BlockSpread3DOptions &opts)
 	free(d);
 }
 
-bool do_fft_3d(int N1,int N2,int N3,double *out,double *in) {
+bool do_fft_3d(int N1,int N2,int N3,double *out,double *in,int num_threads=1) {
+    if (num_threads>1) {
+        fftw_init_threads();
+        fftw_plan_with_nthreads(num_threads);
+    }
+
 	int N1N2N3=N1*N2*N3;
 	fftw_complex *in2=(fftw_complex *)fftw_malloc(sizeof(fftw_complex)*N1N2N3);
 	fftw_complex *out2=(fftw_complex *)fftw_malloc(sizeof(fftw_complex)*N1N2N3);
-	printf("Setting in...\n");
 	for (int ii=0; ii<N1N2N3; ii++) {
 		in2[ii][0]=in[ii*2];
 		in2[ii][1]=in[ii*2+1];
 	}
-	printf("fftw_plan_dft_3d...\n");
 	fftw_plan p=fftw_plan_dft_3d(N1,N2,N3,in2,out2,FFTW_FORWARD,FFTW_ESTIMATE);
-	printf("fftw_execute...\n");
 	fftw_execute(p);
-	printf("Setting out...\n");
 	for (int ii=0; ii<N1N2N3; ii++) {
 		out[ii*2]=out2[ii][0];
 		out[ii*2+1]=out2[ii][1];
 	}
-	printf("fftw_free...\n");
 	fftw_free(in2);
 	fftw_free(out2);
 
+    if (num_threads>1) {
+        fftw_cleanup_threads();
+    }
+
 	return true;
 }
-void do_fix_3d(const BlockNufft3DOptions &opts,double *out,double *out_oversamp_hat) {
-	int N1N2N3_times_2=opts.N1*opts.N2*opts.N3*2;
-	for (int ii=0; ii<N1N2N3_times_2; ii++) {
-		out[ii]=out_oversamp_hat[ii]; //fix, haha
-	}
+void do_fix_3d(int N1,int N2,int N3,int oversamp,int R,double tau,double *out,double *out_oversamp_hat) {
+    for (int i3=0; i3<N3; i3++) {
+        int aa3=i3*N1*N2;
+        int bb3=0;
+        if (i3<N3/2) bb3=i3*N1*oversamp*N2*oversamp;
+        else bb3=(N3*oversamp-(N3-i3))*N1*oversamp*N2*oversamp;
+        for (int i2=0; i2<N2; i2++) {
+            int aa2=i2*N1;
+            int bb2=0;
+            if (i2<N2/2) bb2=i2*N1*oversamp;
+            else bb2=(N2*oversamp-(N2-i2))*N1*oversamp;
+            aa2+=aa3;
+            bb2+=bb3;
+            for (int i1=0; i1<N1; i1++) {
+                int aa1=i1;
+                int bb1=0;
+                if (i1<N1/2) bb1=i1;
+                else bb1=N1*oversamp-(N1-i1);
+                aa1+=aa2;
+                bb1+=bb2;
+                out[aa1*2]=out_oversamp_hat[bb1*2];
+                out[aa1*2+1]=out_oversamp_hat[bb1*2+1];
+            }
+        }
+    }
+}
+
+void write_mda_re_im(const QString &path,int N1,int N2,int N3,double *X) {
+    Mda A_re; A_re.allocate(N1,N2,N3);
+    Mda A_im; A_im.allocate(N1,N2,N3);
+    double *A_re_ptr=A_re.dataPtr();
+    double *A_im_ptr=A_im.dataPtr();
+    int N1N2N3=N1*N2*N3;
+    for (int i=0; i<N1N2N3; i++) {
+        A_re_ptr[i]=X[2*i];
+        A_im_ptr[i]=X[2*i+1];
+    }
+    A_re.write(path+"_re.mda");
+    A_im.write(path+"_im.mda");
 }
 
 //x,y,z should be in range [0,2pi)
 bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *x,double *y,double *z,double *d) {
+    QTime timer0; QTime timer_total; timer_total.start();
+
+    /*
+c     The oversampled regular mesh is defined by
+c
+c     nf1 = rat*ms  points, where rat is the oversampling ratio.
+c     nf2 = rat*mt  points, where rat is the oversampling ratio.
+c
+c     For simplicity, we set
+c
+c         rat = 2 for eps > 1.0d-11
+c         rat = 3 for eps <= 1.0d-11.
+c
+c     The Gaussian used for convolution is:
+c
+c        g(x) = exp(-x^2 / 4tau)
+c
+c     It can be shown [DR] that the precision eps is achieved when
+c
+c     nspread = int(-log(eps)/(pi*(rat-1d0)/(rat-.5d0)) + .5d0)
+c     and tau is chosen as
+c
+c     tau = pi*lambda/(ms**2)
+c     lambda = nspread/(rat(rat-0.5)).
+    */
+
+    double eps=opts.eps;
+    int oversamp=3; if (eps<= 1e-11) oversamp=2;
+    int R=(int)(-log(eps)/(M_PI*(oversamp-1)/(oversamp-.5)) + .5);
+    double lambda=R/(oversamp*(oversamp-0.5));
+    double tau=lambda/2; //need to ask Leslie about this...
+    printf("Using oversamp=%d, nspread=%d, tau=%g\n",oversamp,R,tau);
+
 	BlockSpread3DOptions sopts;
-	sopts.N1o=opts.N1*opts.oversamp; sopts.N2o=opts.N2*opts.oversamp; sopts.N3o=opts.N3*opts.oversamp;
+    sopts.N1o=opts.N1*oversamp; sopts.N2o=opts.N2*oversamp; sopts.N3o=opts.N3*oversamp;
 	sopts.K1=opts.K1; sopts.K2=opts.K2; sopts.K3=opts.K3;
 	sopts.M=opts.M;
 	sopts.num_threads=opts.num_threads;
-	sopts.R1=opts.R1; sopts.R2=opts.R2; sopts.R3=opts.R3;
-	sopts.tau1=opts.tau1; sopts.tau2=opts.tau2; sopts.tau3=opts.tau3;
+    sopts.R1=R; sopts.R2=R; sopts.R3=R;
+    sopts.tau1=tau; sopts.tau2=tau; sopts.tau3=tau;
 
-	printf("Allocating...\n");
+    printf("Allocating... "); timer0.start();
 	double *out_oversamp=(double *)malloc(sizeof(double)*sopts.N1o*sopts.N2o*sopts.N3o*2);
 	double *out_oversamp_hat=(double *)malloc(sizeof(double)*sopts.N1o*sopts.N2o*sopts.N3o*2);
-	double *x2=(double *)malloc(sizeof(double)*opts.M);
-	double *y2=(double *)malloc(sizeof(double)*opts.M);
-	double *z2=(double *)malloc(sizeof(double)*opts.M);
+    printf("Elapsed: %d ms\n",timer0.elapsed());
 
-	printf("Scaling x,y,z...\n");
+    printf("Scaling coordinates... "); timer0.start();
 	double factor_x=sopts.N1o/(2*M_PI);
 	double factor_y=sopts.N2o/(2*M_PI);
 	double factor_z=sopts.N3o/(2*M_PI);
 	for (int ii=0; ii<opts.M; ii++) {
-		x2[ii]=x[ii]*factor_x;
-		y2[ii]=y[ii]*factor_y;
-		z2[ii]=z[ii]*factor_z;
+        x[ii]*=factor_x;
+        y[ii]*=factor_y;
+        z[ii]*=factor_z;
 	}
-	printf("Spreading...\n");
-	blockspread3d(sopts,out_oversamp,x2,y2,z2,d);
+    printf("Elapsed: %d ms\n",timer0.elapsed());
 
-	printf("fft...\n");
-	if (!do_fft_3d(sopts.N1o,sopts.N2o,sopts.N3o,out_oversamp_hat,out_oversamp)) {
+    printf("Spreading...\n"); timer0.start();
+    blockspread3d(sopts,out_oversamp,x,y,z,d);
+    write_mda_re_im("out_oversamp",sopts.N1o,sopts.N2o,sopts.N3o,out_oversamp);
+    double spreading_time=timer0.elapsed();
+    printf("Total time for spreading: %d ms\n",timer0.elapsed());
+
+    printf("fft... "); timer0.start();
+    if (!do_fft_3d(sopts.N1o,sopts.N2o,sopts.N3o,out_oversamp_hat,out_oversamp,opts.num_threads)) {
 		printf("problem in do_fft_3d\n");
+        for (int ii=0; ii<opts.M; ii++) {
+            x[ii]/=factor_x;
+            y[ii]/=factor_y;
+            z[ii]/=factor_z;
+        }
 		free(out_oversamp);
 		free(out_oversamp_hat);
-		free(x2); free(y2); free(z2);
 		return false;
 	}
+    write_mda_re_im("out_oversamp_hat",sopts.N1o,sopts.N2o,sopts.N3o,out_oversamp_hat);
+    double fft_time=timer0.elapsed();
+    printf("Elapsed: %d ms\n",timer0.elapsed());
 
-	printf("fix...\n");
-	do_fix_3d(opts,out,out_oversamp_hat);
+    printf("fix... "); timer0.start();
+    do_fix_3d(opts.N1,opts.N2,opts.N3,oversamp,R,tau,out,out_oversamp_hat);
+    printf("Elapsed: %d ms\n",timer0.elapsed());
 
-	printf("free...\n");
+    printf("Restoring coordinates... "); timer0.start();
+    for (int ii=0; ii<opts.M; ii++) {
+        x[ii]/=factor_x;
+        y[ii]/=factor_y;
+        z[ii]/=factor_z;
+    }
+    printf("Elapsed: %d ms\n",timer0.elapsed());
+
+    printf("free...\n"); timer0.start();
 	free(out_oversamp_hat);
 	free(out_oversamp);
-	free(x2); free(y2); free(z2);
+    printf("Elapsed: %d ms\n",timer0.elapsed());
+
+    double total_time=timer_total.elapsed();
+    double other_time=total_time-spreading_time-fft_time;
+
+    printf("Elapsed time: %.3f seconds: (%.3f spreading, %.3f fft, %.3f other) (%.1f%% spreading, %.1f%% fft, %.1f%% other)\n",
+            total_time/1000,spreading_time/1000,fft_time/1000,other_time/1000,spreading_time/total_time*100,fft_time/total_time*100,other_time/total_time*100);
+
 	printf("done.\n");
 	return true;
 }
@@ -494,24 +620,32 @@ void test_blocknufft3d(BlockNufft3DOptions &opts)
 		x[m]=(1+sin(m+1))*M_PI; //+1 is important so we don't get a 2pi
 		y[m]=(1+sin(m+1))*M_PI;
 		z[m]=(1+sin(m*0.67+1))*M_PI;
-		d[m*2]=1;
+        d[m*2]=0;//sin(m+0.1);
 		d[m*2+1]=0;
 	}
+    x[0]=0; y[0]=0; z[0]=0; d[0]=1;
+    double sum_d[2]={0,0};
+    for (int i=0; i<opts.M; i++) {
+        sum_d[0]+=d[i*2];
+        sum_d[1]+=d[i*2+1];
+    }
 
 	if (1) {
 		QTime timer; timer.start();
 		printf("blocknufft3d\n");
 		blocknufft3d(opts,out1,x,y,z,d);
 		for (int aa=0; aa<10; aa++) printf("%d:%g, ",aa,out1[aa]); printf("\n");
+        printf("sum_d = %g + %gi\n",sum_d[0],sum_d[1]);
 		printf("Time for blocknufft3d: %d ms\n\n",timer.elapsed());
+        write_mda_re_im("out1",opts.N1,opts.N2,opts.N3,out1);
 	}
 	if (1) {
 		QTime timer; timer.start();
-		opts.K1=opts.N1*opts.oversamp; opts.K2=opts.N2*opts.oversamp; opts.K3=opts.K3*opts.oversamp;
+        opts.K1=opts.N1*10; opts.K2=opts.N2*10; opts.K3=opts.K3*10;
 		printf("blocknufft3d\n");
 		blocknufft3d(opts,out2,x,y,z,d);
 		for (int aa=0; aa<10; aa++) printf("%d:%g, ",aa,out2[aa]); printf("\n");
-		printf("Time for blockspread3d: %d ms\n\n",timer.elapsed());
+        printf("Time for blocknufft3d: %d ms\n\n",timer.elapsed());
 
 		bool ok=true;
 		double maxdiff=0;
