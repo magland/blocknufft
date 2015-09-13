@@ -10,7 +10,7 @@ struct BlockNufft3DOptions {
 };
 
 //x,y,z should be in range [0,2pi)
-bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *x,double *y,double *z,double *d);
+bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *spread,double *x,double *y,double *z,double *d);
 void test_blocknufft3d(BlockNufft3DOptions &opts);
 
 struct BlockSpread3DOptions {
@@ -29,7 +29,7 @@ void test_blockspread3d(BlockSpread3DOptions &opts);
 
 /*
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
-MCWRAP [ COMPLEX out[N1,N2,N3] ] = blocknufft3d( xyz[M,3], COMPLEX d[M,1], eps, N1, N2, N3, K1, K2, K3, num_threads )
+MCWRAP [ COMPLEX out[N1,N2,N3], COMPLEX spread[N1*2,N2*2,N3*2] ] = blocknufft3d( xyz[M,3], COMPLEX d[M,1], eps, N1, N2, N3, K1, K2, K3, num_threads )
     SET_INPUT M = size(xyz,1)
     SOURCES blocknufft3d.o qute.cpp
     MEXARGS -largeArrayDims -lm -lgomp -lfftw3 -lfftw3_threads
@@ -38,7 +38,7 @@ IMPORTANT: In order to get openmp to work properly you must generate blocknufft3
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 */
 
-void blocknufft3d(int N1,int N2,int N3,int M,double *out,double *xyz,double *d,double eps,int K1,int K2,int K3,int num_threads);
+void blocknufft3d(int N1,int N2,int N3,int M,double *out,double *spread,double *xyz,double *d,double eps,int K1,int K2,int K3,int num_threads);
 
 
 #endif // BLOCKNUFFT3D_H

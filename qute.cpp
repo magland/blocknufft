@@ -2,7 +2,6 @@
 #include <math.h>
 #include <stdlib.h>
 #include <time.h>
-//#include <chrono>
 
 using namespace std;
 
@@ -11,7 +10,7 @@ class QTimePrivate {
 public:
     QTime *q;
 
-    //Clock::time_point m_start_time;
+	time_t m_start_time;
 
 };
 
@@ -27,14 +26,13 @@ QTime::~QTime()
 
 void QTime::start()
 {
-    //d->m_start_time=Clock::now();
+	d->m_start_time=clock();
 }
 
 int QTime::elapsed()
 {
-    //Clock::time_point t2 = Clock::now();
-    //long int ms=std::chrono::duration_cast<std::chrono::milliseconds>(t2-d->m_start_time).count();
-    //return ms;
+	time_t t2 = clock();
+	return t2-d->m_start_time;
 }
 
 int qrand()

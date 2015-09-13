@@ -32,18 +32,20 @@ int main(int argc, char *argv[])
 		test_blocknufft3d(opts3);
 	}
 
+	/*
     {
         double *out=(double *)malloc(sizeof(double)*3*3*3*2);
         double *xyz=(double *)malloc(sizeof(double)*1*3);
         double *d=(double *)malloc(sizeof(double)*1*2);
         xyz[0]=xyz[1]=xyz[2]=0;
         d[0]=1; d[1]=0;
-        blocknufft3d(3,3,3,1,out,xyz,d,1e-5,10,10,10,1);
+		blocknufft3d(3,3,3,1,out,xyz,d,1e-5,10,10,10,1);
         printf("%g,%g,%g,%g\n",out[0],out[2],out[8],out[22]);
         free(out);
         free(xyz);
         free(d);
     }
+	*/
 
 	return 0;
 }

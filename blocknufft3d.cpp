@@ -21,16 +21,19 @@ double *s_exp_lookup3=0;
 
 void exp_lookup_init(double tau1,double tau2,double tau3) {
     if (s_exp_lookup1) free(s_exp_lookup1);
-    if (s_exp_lookup2) free(s_exp_lookup2);
+	if (s_exp_lookup2) free(s_exp_lookup2);
     if (s_exp_lookup3) free(s_exp_lookup3);
     int NN=100;
     s_exp_lookup1=(double *)malloc(sizeof(double)*NN);
     s_exp_lookup2=(double *)malloc(sizeof(double)*NN);
     s_exp_lookup3=(double *)malloc(sizeof(double)*NN);
     for (int k0=0; k0<NN; k0++) {
-        s_exp_lookup1[k0]=exp(-k0*k0/(4*tau1));
-        s_exp_lookup2[k0]=exp(-k0*k0/(4*tau2));
-        s_exp_lookup3[k0]=exp(-k0*k0/(4*tau3));
+		//s_exp_lookup1[k0]=exp(-k0*k0/(4*tau1));
+		//s_exp_lookup2[k0]=exp(-k0*k0/(4*tau2));
+		//s_exp_lookup3[k0]=exp(-k0*k0/(4*tau3));
+		s_exp_lookup1[k0]=exp(-k0*k0*tau1);
+		s_exp_lookup2[k0]=exp(-k0*k0*tau2);
+		s_exp_lookup3[k0]=exp(-k0*k0*tau3);
     }
 }
 void exp_lookup_destroy() {
@@ -110,11 +113,11 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
             if (b2==num_blocks_y-1) k2=fmin(N2-(num_blocks_y-1)*K2,K2);
             if (b3==num_blocks_z-1) k3=fmin(N3-(num_blocks_z-1)*K3,K3);
             if ((k1-c1<=R1/2)) code=code|RIGHT_SIDE;
-            if ((c1<=-R1/2+R1-1)) code=code|LEFT_SIDE;
+			if ((c1<R1/2-1)) code=code|LEFT_SIDE;
             if ((k2-c2<=R2/2)) code=code|TOP_SIDE;
-            if ((c2<=-R2/2+R2-1)) code=code|BOTTOM_SIDE;
+			if ((c2<R2/2-1)) code=code|BOTTOM_SIDE;
             if ((k3-c3<=R3/2)) code=code|FRONT_SIDE;
-            if ((c3<=-R3/2+R3-1)) code=code|BACK_SIDE;
+			if ((c3<R3-1)) code=code|BACK_SIDE;
 			location_codes[m]=code;
 			block_ids[m]=b1+num_blocks_x*b2+num_blocks_x*num_blocks_y*b3;
 		}
@@ -244,10 +247,10 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
 	{
         if (omp_get_thread_num()==0) printf("#################### Using %d threads (%d prescribed)\n",omp_get_num_threads(),opts.num_threads);
 		#pragma omp for
-		for (int cc=0; cc<num_blocks; cc++) {
-			int cc1=cc%num_blocks_x;
-			int cc2=(cc%(num_blocks_x*num_blocks_y))/num_blocks_x;
-			int cc3=cc/(num_blocks_x*num_blocks_y);
+		for (int iblock=0; iblock<num_blocks; iblock++) {
+			int cc1=iblock%num_blocks_x;
+			int cc2=(iblock%(num_blocks_x*num_blocks_y))/num_blocks_x;
+			int cc3=iblock/(num_blocks_x*num_blocks_y);
 			int factor1=K1; if ((cc1+1)*K1>=N1) factor1=N1-cc1*K1;
 			int factor2=K2; if ((cc2+1)*K2>=N2) factor2=N2-cc2*K2;
 			//int factor3=K3; if ((cc3+1)*K3>=N3) factor3=N3-cc3*K3;
@@ -256,75 +259,95 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
             int block_xmin=cc1*K1,block_xmax=(cc1+1)*K1-1; if (block_xmax>=N1) block_xmax=N1-1;
             int block_ymin=cc2*K2,block_ymax=(cc2+1)*K2-1; if (block_ymax>=N2) block_ymax=N2-1;
             int block_zmin=cc3*K3,block_zmax=(cc3+1)*K3-1; if (block_zmax>=N3) block_zmax=N3-1;
-			int jj=input_block_indices[cc];
-			int tmp=jj+input_block_counts[cc];
-			double x_term2[(R1+1)/2+1];
-			double y_term2[(R2+1)/2+1];
-			double z_term2[(R3+1)/2+1];
+			int jj=input_block_indices[iblock];
+			int tmp=jj+input_block_counts[iblock];
+			double x_term2[R1/2],x_term2_neg[R1/2];
+			double y_term2[R2/2],y_term2_neg[R2/2];
+			double z_term2[R3/2],z_term2_neg[R3/2];
 			double precomp_x_term2[R1+1]; //conservatively large
 			while (jj<tmp) {
 				double x0=input_x[jj],y0=input_y[jj],z0=input_z[jj],d0_re=input_d[jj*2],d0_im=input_d[jj*2+1];
 
+				//exp(-(i+d-j)^2*tau) = exp(-(i-j)^2*tau)*exp(-j^2*tau)*exp(-2*(i-j)*dd*tau)
+
                 int x_integer=ROUND_2_INT(x0);
-                double x_diff=x0-x_integer;
-                double x_term1=exp(-x_diff*x_diff/(4*opts.tau1));
-                double x_term2_factor=exp(-2*x_diff/(4*opts.tau1));
-				int xmin=fmax(x_integer-R1/2,block_xmin);
-				int xmax=fmin(x_integer-R1/2+R1-1,block_xmax);
+				double x_diff=x0-x_integer;
+				double x_term1=exp(-x_diff*x_diff*opts.tau1);
+				double x_term2_factor=exp(2*x_diff*opts.tau1);
+				int xmin=fmax(x_integer-R1/2+1,block_xmin);
+				int xmax=fmin(x_integer+R1/2,block_xmax);
 
                 int y_integer=ROUND_2_INT(y0);
                 double y_diff=y0-y_integer;
-                double y_term1=exp(-y_diff*y_diff/(4*opts.tau2));
-                double y_term2_factor=exp(-2*y_diff/(4*opts.tau2));
-				int ymin=fmax(y_integer-R1/2,block_ymin);
-				int ymax=fmin(y_integer-R1/2+R1-1,block_ymax);
+				double y_term1=exp(-y_diff*y_diff*opts.tau2);
+				double y_term2_factor=exp(2*y_diff*opts.tau2);
+				int ymin=fmax(y_integer-R2/2+1,block_ymin);
+				int ymax=fmin(y_integer+R2/2,block_ymax);
 
                 int z_integer=ROUND_2_INT(z0);
                 double z_diff=z0-z_integer;
-                double z_term1=exp(-z_diff*z_diff/(4*opts.tau3));
-                double z_term2_factor=exp(-2*z_diff/(4*opts.tau3));
-				int zmin=fmax(z_integer-R1/2,block_zmin);
-				int zmax=fmin(z_integer-R1/2+R1-1,block_zmax);
+				double z_term1=exp(-z_diff*z_diff*opts.tau3);
+				double z_term2_factor=exp(2*z_diff*opts.tau3);
+				int zmin=fmax(z_integer-R3/2+1,block_zmin);
+				int zmax=fmin(z_integer+R3/2,block_zmax);
 
 				x_term2[0]=1;
-				int aamax=(R1+1)/2;
-				for (int aa=1; aa<=aamax; aa++) x_term2[aa]=x_term2[aa-1]*x_term2_factor;
+				x_term2_neg[0]=1;
+				int aamax=R1/2;
+				for (int aa=1; aa<=aamax; aa++) {
+					x_term2[aa]=x_term2[aa-1]*x_term2_factor;
+					x_term2_neg[aa]=x_term2_neg[aa-1]/x_term2_factor;
+				}
 				y_term2[0]=1;
-				int bbmax=(R2+1)/2;
-				for (int aa=1; aa<=bbmax; aa++) y_term2[aa]=y_term2[aa-1]*y_term2_factor;
+				y_term2_neg[0]=1;
+				int bbmax=R2/2;
+				for (int bb=1; bb<=bbmax; bb++) {
+					y_term2[bb]=y_term2[bb-1]*y_term2_factor;
+					y_term2_neg[bb]=y_term2_neg[bb-1]/y_term2_factor;
+				}
 				z_term2[0]=1;
-				int ccmax=(R3+1)/2;
-				for (int aa=1; aa<=ccmax; aa++) z_term2[aa]=z_term2[aa-1]*z_term2_factor;
+				z_term2_neg[0]=1;
+				int ccmax=R3/2;
+				for (int cc=1; cc<=ccmax; cc++) {
+					z_term2[cc]=z_term2[cc-1]*z_term2_factor;
+					z_term2_neg[cc]=z_term2_neg[cc-1]/z_term2_factor;
+				}
 
-				for (int aa=0; aa<=aamax; aa++) x_term2[aa]*=s_exp_lookup1[aa];
-				for (int aa=0; aa<=bbmax; aa++) y_term2[aa]*=s_exp_lookup2[aa];
-				for (int aa=0; aa<=ccmax; aa++) z_term2[aa]*=s_exp_lookup3[aa];
+				for (int aa=0; aa<=aamax; aa++) {
+					x_term2[aa]*=s_exp_lookup1[aa];
+					x_term2_neg[aa]*=s_exp_lookup1[aa];
+				}
+				for (int bb=0; bb<=bbmax; bb++) {
+					y_term2[bb]*=s_exp_lookup2[bb];
+					y_term2_neg[bb]*=s_exp_lookup2[bb];
+				}
+				for (int cc=0; cc<=ccmax; cc++) {
+					z_term2[cc]*=s_exp_lookup3[cc];
+					z_term2_neg[cc]*=s_exp_lookup3[cc];
+				}
 
 				int precomp_x_term2_sz=xmax-xmin+1;
 				for (int ix=xmin; ix<=xmax; ix++) {
-					int iix=abs(ix-x_integer);
-					precomp_x_term2[ix-xmin]=x_term2[iix];
+					int iix=ix-x_integer;
+					if (iix>=0) precomp_x_term2[ix-xmin]=x_term2[iix];
+					else precomp_x_term2[ix-xmin]=x_term2_neg[-iix];
 				}
 
 				double kernval0=x_term1*y_term1*z_term1;
                 for (int iz=zmin; iz<=zmax; iz++) {
-					int kkk1=output_block_indices[cc]*2+factor12_times_2*(iz-block_zmin); //complex index
-					int iiz=abs(iz-z_integer);
-					double kernval1=kernval0*z_term2[iiz];
+					int kkk1=output_block_indices[iblock]*2+factor12_times_2*(iz-block_zmin); //complex index
+					int iiz=iz-z_integer;
+					double kernval1=kernval0;
+					if (iiz>=0) kernval1*=z_term2[iiz];
+					else kernval1*=z_term2_neg[-iiz];
 					for (int iy=ymin; iy<=ymax; iy++) {
 						int kkk2=kkk1+factor1_times_2*(iy-block_ymin);
-						int iiy=abs(iy-y_integer);
-						double kernval2=kernval1*y_term2[iiy];
+						int iiy=iy-y_integer;
+						double kernval2=kernval1;
+						if (iiy>=0) kernval2*=y_term2[iiy];
+						else kernval2*=y_term2_neg[-iiy];
 						int kkk3=kkk2+(xmin-block_xmin)*2; //times 2 because complex
-						/* //since this inner-most loop matters a lot, we optimize the following by precomputing...
-						for (int ix=xmin; ix<=xmax; ix++) {
-							int iix=abs(ix-x_integer);
-							output_tmp[kkk3]+=d0_re*kernval2*x_term2[iix];
-							output_tmp[kkk3+1]+=d0_im*kernval2*x_term2[iix];
-							kkk3+=2; //plus two because complex
-						}
-						*/
-						//replaced by the following for efficiency -- note, we don't need to compute abs(ix-x_integer)
+						//did the precompute for for efficiency -- note, we don't need to check for negative
 						for (int iii=0; iii<precomp_x_term2_sz; iii++) {
 							//most of the time is spent within this code block!!!
 							double tmp0=kernval2*precomp_x_term2[iii];
@@ -347,17 +370,17 @@ bool blockspread3d(const BlockSpread3DOptions &opts,double *out,double *x,double
     #pragma omp parallel
 	{
         #pragma omp for
-		for (int cc=0; cc<num_blocks; cc++) {
-			int cc1=cc%num_blocks_x;
-			int cc2=(cc%(num_blocks_x*num_blocks_y))/num_blocks_x;
-			int cc3=cc/(num_blocks_x*num_blocks_y);
+		for (int iblock=0; iblock<num_blocks; iblock++) {
+			int cc1=iblock%num_blocks_x;
+			int cc2=(iblock%(num_blocks_x*num_blocks_y))/num_blocks_x;
+			int cc3=iblock/(num_blocks_x*num_blocks_y);
             int factor1=K1; if ((cc1+1)*K1>=N1) factor1=N1-cc1*K1;
 			int factor2=K2; if ((cc2+1)*K2>=N2) factor2=N2-cc2*K2;
 			int factor3=K3; if ((cc3+1)*K3>=N3) factor3=N3-cc3*K3;
 			int dd1=cc1*K1;
 			int dd2=cc2*K2;
 			int dd3=cc3*K3;
-			int kkk=output_block_indices[cc]*2; //times 2 because complex
+			int kkk=output_block_indices[iblock]*2; //times 2 because complex
 			for (int i3=0; i3<factor3; i3++) {
 				for (int i2=0; i2<factor2; i2++) {
 					for (int i1=0; i1<factor1; i1++) { //make this inner loop more efficient by not doing the multiplication here?
@@ -447,7 +470,7 @@ bool do_fft_3d(int N1,int N2,int N3,double *out,double *in,int num_threads=1) {
 		in2[ii][0]=in[ii*2];
 		in2[ii][1]=in[ii*2+1];
 	}
-	fftw_plan p=fftw_plan_dft_3d(N1,N2,N3,in2,out2,FFTW_FORWARD,FFTW_ESTIMATE);
+	fftw_plan p=fftw_plan_dft_3d(N3,N2,N1,in2,out2,FFTW_BACKWARD,FFTW_ESTIMATE); //do we need to do N3,N2,N1 backwards? Really? Wasted half of a day. Oh well, in the mean time I made sure the rest of my code was bug free.
 	fftw_execute(p);
 	for (int ii=0; ii<N1N2N3; ii++) {
 		out[ii*2]=out2[ii][0];
@@ -465,18 +488,22 @@ bool do_fft_3d(int N1,int N2,int N3,double *out,double *in,int num_threads=1) {
 void do_fix_3d(int N1,int N2,int N3,int oversamp,double tau,double *out,double *out_oversamp_hat) {
     double *correction_vals1=(double *)malloc(sizeof(double)*(N1/2+2));
     double *correction_vals2=(double *)malloc(sizeof(double)*(N2/2+2));
-    double *correction_vals3=(double *)malloc(sizeof(double)*(N3/2+2));
-    double tmp1=2*M_PI/(N1*oversamp);
-    double tmp2=2*M_PI/(N2*oversamp);
-    double tmp3=2*M_PI/(N3*oversamp);
+	double *correction_vals3=(double *)malloc(sizeof(double)*(N3/2+2));
+	double lambda=M_PI/tau;
+	int N1b=N1*oversamp;
+	int N2b=N2*oversamp;
+	int N3b=N3*oversamp;
+	double t1=M_PI * lambda / (N1b*N1b);
+	double t2=M_PI * lambda / (N2b*N2b);
+	double t3=M_PI * lambda / (N3b*N3b);
     for (int i=0; i<N1/2+2; i++) {
-        correction_vals1[i]=exp(-i*i*tau*tmp1*tmp1);
+		correction_vals1[i]=exp(-i*i*t1);
     }
     for (int i=0; i<N2/2+2; i++) {
-        correction_vals2[i]=exp(-i*i*tau*tmp2*tmp2);
+		correction_vals2[i]=exp(-i*i*t2);
     }
     for (int i=0; i<N3/2+2; i++) {
-        correction_vals3[i]=exp(-i*i*tau*tmp3*tmp3);
+		correction_vals3[i]=exp(-i*i*t3);
     }
     for (int i3=0; i3<N3; i3++) {
         int aa3=i3*N1*N2;
@@ -520,8 +547,8 @@ void do_fix_3d(int N1,int N2,int N3,int oversamp,double tau,double *out,double *
                 aa1+=aa2;
                 bb1+=bb2;
                 correction1*=correction2;
-                out[aa1*2]=out_oversamp_hat[bb1*2]/correction1;
-                out[aa1*2+1]=out_oversamp_hat[bb1*2+1]/correction1;
+				out[aa1*2]=out_oversamp_hat[bb1*2]/correction1;
+				out[aa1*2+1]=out_oversamp_hat[bb1*2+1]/correction1;
             }
         }
     }
@@ -547,7 +574,7 @@ void write_mda_re_im(const QString &path,int N1,int N2,int N3,double *X) {
 */
 
 //x,y,z should be in range [0,2pi)
-bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *x,double *y,double *z,double *d) {
+bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *spread,double *x,double *y,double *z,double *d) {
     QTime timer0; QTime timer_total; timer_total.start();
 
     /*
@@ -578,10 +605,12 @@ c     G(s) = exp(-s^2 tau) = exp(-pi*lambda s^2/ms^2)
     */
 
     double eps=opts.eps;
-    int oversamp=3; if (eps<= 1e-11) oversamp=2;
-    int R=(int)(-log(eps)/(M_PI*(oversamp-1)/(oversamp-.5)) + .5);
-    double lambda=R/(oversamp*(oversamp-0.5));
-    double tau=lambda/2; //need to ask Leslie about this...
+	int oversamp=2; if (eps<= 1e-11) oversamp=3;
+	int R=(int)(-log(eps)/(M_PI*(oversamp-1)/(oversamp-.5)) + .5) + 1; //the plus one was added -- different from docs -- aha!
+	R=R*2; //we need to multiply by 2!!!
+	//double lambda=R/(oversamp*(oversamp-0.5));
+	double lambda=oversamp*oversamp * R / (oversamp*(oversamp-.5));
+	double tau=2*M_PI/lambda; //need to ask Leslie about this...
     printf("Using oversamp=%d, nspread=%d, tau=%g\n",oversamp,R,tau);
 
 	BlockSpread3DOptions sopts;
@@ -612,6 +641,9 @@ c     G(s) = exp(-s^2 tau) = exp(-pi*lambda s^2/ms^2)
     blockspread3d(sopts,out_oversamp,x,y,z,d);
     double spreading_time=timer0.elapsed();
     printf("Total time for spreading: %d ms\n",timer0.elapsed());
+	for (int ii=0; ii<sopts.N1o*sopts.N2o*sopts.N3o*2; ii++) {
+		spread[ii]=out_oversamp[ii];
+	}
 
     printf("fft... "); timer0.start();
     if (!do_fft_3d(sopts.N1o,sopts.N2o,sopts.N3o,out_oversamp_hat,out_oversamp,opts.num_threads)) {
@@ -625,7 +657,7 @@ c     G(s) = exp(-s^2 tau) = exp(-pi*lambda s^2/ms^2)
 		free(out_oversamp_hat);
 		return false;
 	}
-    double fft_time=timer0.elapsed();
+	double fft_time=timer0.elapsed();
     printf("Elapsed: %d ms\n",timer0.elapsed());
 
     printf("fix... "); timer0.start();
@@ -680,6 +712,7 @@ void test_blocknufft3d(BlockNufft3DOptions &opts)
         sum_d[1]+=d[i*2+1];
     }
 
+	/*
 	if (1) {
 		QTime timer; timer.start();
 		printf("blocknufft3d\n");
@@ -705,6 +738,7 @@ void test_blocknufft3d(BlockNufft3DOptions &opts)
 		if (ok) printf("Outputs match!\n");
 		else printf("Outputs do not match. maxdiff=%g\n",maxdiff);
 	}
+	*/
 
 	free(x);
 	free(y);
@@ -712,7 +746,7 @@ void test_blocknufft3d(BlockNufft3DOptions &opts)
 	free(d);
 }
 
-void blocknufft3d(int N1,int N2,int N3,int M,double *out,double *xyz,double *d,double eps,int K1,int K2,int K3,int num_threads) {
+void blocknufft3d(int N1,int N2,int N3,int M,double *out,double *spread,double *xyz,double *d,double eps,int K1,int K2,int K3,int num_threads) {
     BlockNufft3DOptions opts;
     opts.eps=eps;
     opts.K1=K1; opts.K2=K2; opts.K3=K3;
@@ -723,6 +757,6 @@ void blocknufft3d(int N1,int N2,int N3,int M,double *out,double *xyz,double *d,d
     double *x=&xyz[0];
     double *y=&xyz[M];
     double *z=&xyz[2*M];
-    blocknufft3d(opts,out,x,y,z,d);
+	blocknufft3d(opts,out,spread,x,y,z,d);
 
 }
