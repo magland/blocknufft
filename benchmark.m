@@ -1,6 +1,6 @@
 close all;
 
-N1=100; N2=100; N3=100;
+N1=111; N2=60; N3=40;
 M=1e5;
 xyz=rand(M,3)*2*pi;
 d=ones(M,1);
@@ -41,7 +41,7 @@ spread=fftshift(spread);
  writemda(fftn(spread),'A2_spread_fft.mda');
 end
 
-A1=fftshift(A1);
+A1=ifftshift(A1);
 fprintf('Max difference in images: %g\n',max(abs(A1(:)-A2(:))));
 
 if 1
