@@ -143,7 +143,7 @@ bool do_fft_3d(int N1,int N2,int N3,double *out,double *in,int num_threads=1);
 void do_fix_3d(int N1,int N2,int N3,int M,int oversamp,double tau,double *out,double *out_oversamp_hat);
 
 // Here's the nufft!
-bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *x,double *y,double *z,double *d) {
+bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *spread,double *x,double *y,double *z,double *d) {
 	QTime timer0; QTime timer_total; timer_total.start();
 
 	printf("\nStarting blocknufft3d.\n");
@@ -184,6 +184,9 @@ bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *x,double *
 	blockspread3d(sopts,out_oversamp,x,y,z,d);
 	double spreading_time=timer0.elapsed();
 	printf("  --- Total time for spreading: %d ms\n",timer0.elapsed());
+	for (int jj=0; jj<sopts.N1o*sopts.N2o*sopts.N3o*2; jj++) {
+		spread[jj]=out_oversamp[jj];
+	}
 
 	printf("fft...\n"); timer0.start();
 	if (!do_fft_3d(sopts.N1o,sopts.N2o,sopts.N3o,out_oversamp_hat,out_oversamp,opts.num_threads)) {
@@ -229,7 +232,7 @@ bool blocknufft3d(const BlockNufft3DOptions &opts,double *out,double *x,double *
 }
 
 // This is the mcwrap interface
-void blocknufft3d(int N1,int N2,int N3,int M,double *uniform_d,double *xyz,double *nonuniform_d,double eps,int K1,int K2,int K3,int num_threads) {
+void blocknufft3d(int N1,int N2,int N3,int M,double *uniform_d,double *spread,double *xyz,double *nonuniform_d,double eps,int K1,int K2,int K3,int num_threads) {
 	BlockNufft3DOptions opts;
 	opts.eps=eps;
 	opts.K1=K1; opts.K2=K2; opts.K3=K3;
@@ -240,7 +243,7 @@ void blocknufft3d(int N1,int N2,int N3,int M,double *uniform_d,double *xyz,doubl
 	double *x=&xyz[0];
 	double *y=&xyz[M];
 	double *z=&xyz[2*M];
-	blocknufft3d(opts,uniform_d,x,y,z,nonuniform_d);
+	blocknufft3d(opts,uniform_d,spread,x,y,z,nonuniform_d);
 }
 
 /////////////////////////////////////////////
@@ -306,7 +309,7 @@ void do_fix_3d(int N1,int N2,int N3,int M,int oversamp,double tau,double *out,do
 		int aa3=((i3+N3/2)%N3)*N1*N2; //this includes a shift of the zero frequency
         int bb3=0;
 		double correction3=1/(lambda*sqrt(lambda));
-        if (i3<N3/2) { //should this be <= ?  It doesn't seem to make a significant difference. Not sure why
+		if (i3<(N3+1)/2) { //had to be careful here!
             bb3=i3*N1*oversamp*N2*oversamp;
             correction3=correction_vals3[i3];
         }
@@ -318,7 +321,7 @@ void do_fix_3d(int N1,int N2,int N3,int M,int oversamp,double tau,double *out,do
 			int aa2=((i2+N2/2)%N2)*N1;
             int bb2=0;
             double correction2=1;
-            if (i2<N2/2) {
+			if (i2<(N2+1)/2) {
                 bb2=i2*N1*oversamp;
                 correction2=correction_vals2[i2];
             }
@@ -333,7 +336,7 @@ void do_fix_3d(int N1,int N2,int N3,int M,int oversamp,double tau,double *out,do
 				int aa1=(i1+N1/2)%N1;
                 int bb1=0;
                 double correction1=1;
-                if (i1<N1/2) {
+				if (i1<(N1+1)/2) {
                     bb1=i1;
                     correction1=correction_vals1[i1];
                 }
@@ -405,11 +408,11 @@ void define_block_ids_and_location_codes(BlockSpread3DData &D) {
 			if (b2==D.num_blocks_y-1) k2=fmin(D.N2o-(D.num_blocks_y-1)*D.K2,D.K2);
 			if (b3==D.num_blocks_z-1) k3=fmin(D.N3o-(D.num_blocks_z-1)*D.K3,D.K3);
 			if ((k1-c1<=D.nspread1/2)) code=code|RIGHT_SIDE;
-			if ((c1<D.nspread1/2-1)) code=code|LEFT_SIDE;
+			if ((c1<=D.nspread1/2)) code=code|LEFT_SIDE;
 			if ((k2-c2<=D.nspread2/2)) code=code|TOP_SIDE;
-			if ((c2<D.nspread2/2-1)) code=code|BOTTOM_SIDE;
+			if ((c2<=D.nspread2/2)) code=code|BOTTOM_SIDE;
 			if ((k3-c3<=D.nspread3/2)) code=code|FRONT_SIDE;
-			if ((c3<D.nspread3-1)) code=code|BACK_SIDE;
+			if ((c3<=D.nspread3)) code=code|BACK_SIDE;
 			D.location_codes[m]=code;
 			D.block_ids[m]=b1+D.num_blocks_x*b2+D.num_blocks_x*D.num_blocks_y*b3;
 		}
@@ -558,22 +561,43 @@ void do_spreading(BlockSpread3DData &D) {
 				double x_diff=x0-x_integer;
 				double x_term1=exp(-x_diff*x_diff*D.tau1);
 				double x_term2_factor=exp(2*x_diff*D.tau1);
-				int xmin=fmax(x_integer-D.nspread1/2+1,block_xmin);
-				int xmax=fmin(x_integer+D.nspread1/2,block_xmax);
+				int xmin,xmax;
+				if (x_diff<0) {
+					xmin=fmax(x_integer-D.nspread1/2,block_xmin);
+					xmax=fmin(x_integer+D.nspread1/2-1,block_xmax);
+				}
+				else {
+					xmin=fmax(x_integer-D.nspread1/2+1,block_xmin);
+					xmax=fmin(x_integer+D.nspread1/2,block_xmax);
+				}
 
 				int y_integer=ROUND_2_INT(y0);
 				double y_diff=y0-y_integer;
 				double y_term1=exp(-y_diff*y_diff*D.tau2);
 				double y_term2_factor=exp(2*y_diff*D.tau2);
-				int ymin=fmax(y_integer-D.nspread2/2+1,block_ymin);
-				int ymax=fmin(y_integer+D.nspread2/2,block_ymax);
+				int ymin,ymax;
+				if (y_diff<0) {
+					ymin=fmax(y_integer-D.nspread2/2,block_ymin);
+					ymax=fmin(y_integer+D.nspread2/2-1,block_ymax);
+				}
+				else {
+					ymin=fmax(y_integer-D.nspread2/2+1,block_ymin);
+					ymax=fmin(y_integer+D.nspread2/2,block_ymax);
+				}
 
 				int z_integer=ROUND_2_INT(z0);
 				double z_diff=z0-z_integer;
 				double z_term1=exp(-z_diff*z_diff*D.tau3);
 				double z_term2_factor=exp(2*z_diff*D.tau3);
-				int zmin=fmax(z_integer-D.nspread3/2+1,block_zmin);
-				int zmax=fmin(z_integer+D.nspread3/2,block_zmax);
+				double zmin,zmax;
+				if (z_diff<0) {
+					zmin=fmax(z_integer-D.nspread3/2,block_zmin);
+					zmax=fmin(z_integer+D.nspread3/2-1,block_zmax);
+				}
+				else {
+					zmin=fmax(z_integer-D.nspread3/2+1,block_zmin);
+					zmax=fmin(z_integer+D.nspread3/2,block_zmax);
+				}
 
 				x_term2[0]=1;
 				x_term2_neg[0]=1;

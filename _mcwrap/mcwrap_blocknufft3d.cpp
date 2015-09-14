@@ -25,7 +25,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
       if (nlhs==0) nlhs=1;
       if (nrhs!=10)
          mexErrMsgTxt("Incorrect number of inputs"); 
-      else if (nlhs>1)
+      else if (nlhs>2)
          mexErrMsgTxt ("Too many outputs.");
 
       // mexPrintf("test A.2\n");
@@ -61,31 +61,31 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         }
         double *input_xyz=mxGetPr(prhs[4-1]);
         
-        //d
+        //nonuniform_d
         //Check that we have the correct dimensions!
         {
             int numdims=mxGetNumberOfDimensions(prhs[5-1]);
             if (numdims!=2) {
-              mexErrMsgTxt("Incorrect number of dimensions in input: d");
+              mexErrMsgTxt("Incorrect number of dimensions in input: nonuniform_d");
             }
             const mwSize *dims2=mxGetDimensions(prhs[5-1]);
             int dims[]={ input_M,1 };
             for (long ii=0; ii<numdims; ii++) {
               if (dims[ii]!=dims2[ii]) {
-                mexErrMsgTxt("Incorrect size of input: d");
+                mexErrMsgTxt("Incorrect size of input: nonuniform_d");
               }
             }
         }
-        double *input_d_re=mxGetPr(prhs[5-1]);
-        double *input_d_im=mxGetPi(prhs[5-1]);
-        double *input_d=(double *)malloc(sizeof(double)*((input_M)*(1)*2));
+        double *input_nonuniform_d_re=mxGetPr(prhs[5-1]);
+        double *input_nonuniform_d_im=mxGetPi(prhs[5-1]);
+        double *input_nonuniform_d=(double *)malloc(sizeof(double)*((input_M)*(1)*2));
         for (long ii=0; ii<(input_M)*(1); ii++) {
-            input_d[ii*2]=input_d_re[ii];
-            if (input_d_im) {
-                input_d[ii*2+1]=input_d_im[ii];
+            input_nonuniform_d[ii*2]=input_nonuniform_d_re[ii];
+            if (input_nonuniform_d_im) {
+                input_nonuniform_d[ii*2+1]=input_nonuniform_d_im[ii];
             }
             else {
-                input_d[ii*2+1]=0;    
+                input_nonuniform_d[ii*2+1]=0;    
             }
         }
         //eps
@@ -106,10 +106,10 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     
       //mexPrintf("test C\n");
 //    Setup the outputs
-        //out
-        double *output_out_re;
-        double *output_out_im;
-        double *output_out;
+        //uniform_d
+        double *output_uniform_d_re;
+        double *output_uniform_d_im;
+        double *output_uniform_d;
         if (1<=nlhs) {
         if ((3<1)||(3>20)) {
           mexErrMsgTxt("Bad number of dimensions for my taste: 3"); 
@@ -125,10 +125,33 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         
             mwSize dims[]={ input_N1,input_N2,input_N3 };
             plhs[1-1]=mxCreateNumericArray(3,dims,mxDOUBLE_CLASS,mxCOMPLEX);
-            output_out_re=mxGetPr(plhs[1-1]);
-            output_out_im=mxGetPi(plhs[1-1]);
+            output_uniform_d_re=mxGetPr(plhs[1-1]);
+            output_uniform_d_im=mxGetPi(plhs[1-1]);
         }
-        output_out=(double *)malloc(sizeof(double)*((input_N1)*(input_N2)*(input_N3))*2);
+        output_uniform_d=(double *)malloc(sizeof(double)*((input_N1)*(input_N2)*(input_N3))*2);
+        //spread
+        double *output_spread_re;
+        double *output_spread_im;
+        double *output_spread;
+        if (2<=nlhs) {
+        if ((3<1)||(3>20)) {
+          mexErrMsgTxt("Bad number of dimensions for my taste: 3"); 
+        }
+        {
+            int dims2[]={ input_N1 * 2,input_N2 * 2,input_N3 * 2 };
+            for (long ii=0; ii<3; ii++) {
+                if ((dims2[ii]<1)||(dims2[ii]>10000000000.0)) {
+                  mexErrMsgTxt ("Bad array size for my taste: input_N1 * 2,input_N2 * 2,input_N3 * 2"); 
+                }
+            }
+        }
+        
+            mwSize dims[]={ input_N1 * 2,input_N2 * 2,input_N3 * 2 };
+            plhs[2-1]=mxCreateNumericArray(3,dims,mxDOUBLE_CLASS,mxCOMPLEX);
+            output_spread_re=mxGetPr(plhs[2-1]);
+            output_spread_im=mxGetPi(plhs[2-1]);
+        }
+        output_spread=(double *)malloc(sizeof(double)*((input_N1 * 2)*(input_N2 * 2)*(input_N3 * 2))*2);
 
     
       //mexPrintf("test D\n");
@@ -138,9 +161,10 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         input_N2,
         input_N3,
         input_M,
-        output_out,
+        output_uniform_d,
+        output_spread,
         input_xyz,
-        input_d,
+        input_nonuniform_d,
         input_eps,
         input_K1,
         input_K2,
@@ -152,19 +176,27 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
       //mexPrintf("test E\n");
 //    Free the inputs
         //xyz
-        //d
-        free(input_d);
+        //nonuniform_d
+        free(input_nonuniform_d);
 
       //mexPrintf("test F\n");
 //    Set the outputs
-        //out
+        //uniform_d
         if (1<=nlhs) {
             for (long ii=0; ii<(input_N1)*(input_N2)*(input_N3); ii++) {
-                output_out_re[ii]=output_out[ii*2];
-                output_out_im[ii]=output_out[ii*2+1];
+                output_uniform_d_re[ii]=output_uniform_d[ii*2];
+                output_uniform_d_im[ii]=output_uniform_d[ii*2+1];
             }
         }
-        free(output_out);
+        free(output_uniform_d);
+        //spread
+        if (2<=nlhs) {
+            for (long ii=0; ii<(input_N1 * 2)*(input_N2 * 2)*(input_N3 * 2); ii++) {
+                output_spread_re[ii]=output_spread[ii*2];
+                output_spread_im[ii]=output_spread[ii*2+1];
+            }
+        }
+        free(output_spread);
 
       //mexPrintf("test G\n");
 
