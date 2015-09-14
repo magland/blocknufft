@@ -1,6 +1,6 @@
 close all;
 
-N1=111; N2=60; N3=40;
+N1=112; N2=60; N3=40;
 M=1e5;
 xyz=rand(M,3)*2*pi;
 d=ones(M,1);
@@ -23,7 +23,7 @@ tic;
 toc
 A1=A1/max(abs(A1(:)));
 %figure; imagesc(squeeze(real(A1(:,:,6)))); colormap('gray'); drawnow;
-writemda(A1,'A1.mda');
+%writemda(A1,'A1.mda');
 %writemda(spread,'A1_spread.mda');
 %writemda(fftn(spread),'A1_spread_fft.mda');
 end
@@ -31,14 +31,11 @@ end
 if 1
 disp('***** New implementation, single thread, blocking off *****');
 tic
-[A2,spread]=blocknufft3d(N1,N2,N3,xyz,d,eps,K1,K2,K3,num_threads);
+[A2]=blocknufft3d(N1,N2,N3,xyz,d,eps,K1,K2,K3,num_threads);
 toc
 A2=A2/max(abs(A2(:)));
 %figure; imagesc(squeeze(real(A2(:,:,6)))); colormap('gray'); drawnow;
-writemda(A2,'A2.mda');
-spread=fftshift(spread);
- writemda(spread,'A2_spread.mda');
- writemda(fftn(spread),'A2_spread_fft.mda');
+%writemda(A2,'A2.mda');
 end
 
 A1=ifftshift(A1);
